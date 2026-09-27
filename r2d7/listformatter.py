@@ -1,3 +1,4 @@
+import base64
 from html import unescape
 import logging
 import re
@@ -50,7 +51,48 @@ class ListFormatter(DroidCore):
             r'(https://(launchbaynext)\.app/[a-z]*\?lbx=([^&]+)(?:&mode=[a-z]+)?)'),
         re.compile(  # legacy LBN app links
             r'(https://(launch-bay-next)\.herokuapp\.com/[a-z]*\?lbx=([^&]+)(?:&mode=[a-z]+)?)'),
+        re.compile(
+            r'(https?://(?:www\.|app\.)?(squadrondatapad)\.com/s/([A-Za-z0-9_-]+))'),
     )
+
+    # Squadron Datapad share links carry the whole squad in the URL: base64url
+    # (unpadded) JSON with short keys, so they decode locally with no API call.
+    # Only payload version 1 (2nd edition) is decoded; version 2 is First
+    # Edition, which this bot has no data for.
+    _sdp_factions = {
+        'r': 'rebelalliance', 'e': 'galacticempire', 's': 'scumandvillainy',
+        'rs': 'resistance', 'fo': 'firstorder', 'rp': 'galacticrepublic',
+        'sp': 'separatistalliance', 'm': 'multifaction',
+    }
+
+    def decode_squadrondatapad(self, payload, url):
+        try:
+            raw = base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4))
+            compact = json.loads(raw.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            raise DroidException("Couldn't read that Squadron Datapad link")
+        if compact.get('v') == 2:
+            raise DroidException(
+                "First Edition Squadron Datapad lists aren't supported")
+        faction = self._sdp_factions.get(compact.get('f'))
+        if compact.get('v') != 1 or not faction or not isinstance(compact.get('p'), list):
+            raise DroidException("Couldn't read that Squadron Datapad link")
+        xws = {
+            'faction': faction,
+            'pilots': [
+                # Slot keys are not in the link; print_xws only needs the ids.
+                {'id': p['i'], **({'upgrades': {'upgrade': p['u']}} if p.get('u') else {})}
+                for p in compact['p']
+            ],
+            'vendor': {'squadrondatapad': {
+                'builder': 'Squadron Datapad',
+                'builder_url': 'https://squadrondatapad.com',
+                'link': url,
+            }},
+        }
+        if compact.get('n'):
+            xws['name'] = compact['n']
+        return xws
 
     def get_xws(self, message):
         match = None
@@ -61,6 +103,9 @@ class ListFormatter(DroidCore):
         else:
             logger.debug(f"Unrecognised URL: {message}")
             return None
+
+        if match[2] == 'squadrondatapad':
+            return self.decode_squadrondatapad(match[3], match[1])
 
         xws_url = None
         address = "5.161.202.51:3001"
