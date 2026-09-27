@@ -57,8 +57,9 @@ class ListFormatter(DroidCore):
 
     # Squadron Datapad share links carry the whole squad in the URL: base64url
     # (unpadded) JSON with short keys, so they decode locally with no API call.
-    # Only payload version 1 (2nd edition) is decoded; version 2 is First
-    # Edition, which this bot has no data for.
+    # Only payload version 1 (2nd edition) is decoded. Anything else (version
+    # 2 is First Edition, which this bot has no data for) returns None, so the
+    # link is left alone like any other unrecognised URL.
     _sdp_factions = {
         'r': 'rebelalliance', 'e': 'galacticempire', 's': 'scumandvillainy',
         'rs': 'resistance', 'fo': 'firstorder', 'rp': 'galacticrepublic',
@@ -70,19 +71,19 @@ class ListFormatter(DroidCore):
             raw = base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4))
             compact = json.loads(raw.decode('utf-8'))
         except (ValueError, UnicodeDecodeError):
-            raise DroidException("Couldn't read that Squadron Datapad link")
-        if compact.get('v') == 2:
-            raise DroidException(
-                "First Edition Squadron Datapad lists aren't supported")
-        faction = self._sdp_factions.get(compact.get('f'))
-        if compact.get('v') != 1 or not faction or not isinstance(compact.get('p'), list):
-            raise DroidException("Couldn't read that Squadron Datapad link")
+            logger.debug(f"Unreadable Squadron Datapad link: {url}")
+            return None
+        if (not isinstance(compact, dict) or compact.get('v') != 1
+                or compact.get('f') not in self._sdp_factions
+                or not isinstance(compact.get('p'), list)):
+            logger.debug(f"Unsupported Squadron Datapad link: {url}")
+            return None
         xws = {
-            'faction': faction,
+            'faction': self._sdp_factions[compact['f']],
             'pilots': [
                 # Slot keys are not in the link; print_xws only needs the ids.
                 {'id': p['i'], **({'upgrades': {'upgrade': p['u']}} if p.get('u') else {})}
-                for p in compact['p']
+                for p in compact['p'] if isinstance(p, dict) and 'i' in p
             ],
             'vendor': {'squadrondatapad': {
                 'builder': 'Squadron Datapad',

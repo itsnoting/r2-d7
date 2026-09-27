@@ -1,6 +1,5 @@
 import pytest
 
-from r2d7.core import DroidException
 from r2d7.listformatter import ListFormatter
 from r2d7.slackdroid import SlackDroid
 
@@ -103,7 +102,13 @@ def test_squadrondatapad_link_prints(testbot):
     assert lines[2].startswith(':t65xwing::initiative5: _<https://xwingtmgwiki.com/Luke_Skywalker|Luke Skywalker>_: <https://xwingtmgwiki.com/R2-D2|R2-D2> *[')
 
 
-def test_squadrondatapad_first_edition_link_is_refused(testbot):
+def test_squadrondatapad_first_edition_link_is_left_alone(testbot):
     # Payload version 2 is a First Edition squad: {"v":2,"f":"r","r":"1e","m":"s","p":[{"i":"lukeskywalker"}]}
-    with pytest.raises(DroidException):
-        testbot.get_xws("https://squadrondatapad.com/s/eyJ2IjoyLCJmIjoiciIsInIiOiIxZSIsIm0iOiJzIiwicCI6W3siaSI6Imx1a2Vza3l3YWxrZXIifV19")
+    # The bot has no 1.0 data, so it posts nothing, like any unrecognised URL.
+    url = "https://squadrondatapad.com/s/eyJ2IjoyLCJmIjoiciIsInIiOiIxZSIsIm0iOiJzIiwicCI6W3siaSI6Imx1a2Vza3l3YWxrZXIifV19"
+    assert testbot.get_xws(url) is None
+    assert testbot.handle_url(url) == []
+
+
+def test_squadrondatapad_garbled_link_is_left_alone(testbot):
+    assert testbot.handle_url("https://squadrondatapad.com/s/bm90LWpzb24") == []
